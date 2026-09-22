@@ -108,6 +108,7 @@
             <button class="button primary small" data-copy="${idx}">📋 Copy</button>
             <button class="button outline small" data-email="${idx}">✉ Email</button>
             <button class="button outline small" data-share="${idx}">↗ Share</button>
+            <button class="button outline small" data-download="${idx}">⬇ Download PNG</button>
           </div>
         </div>
       </article>
@@ -116,6 +117,141 @@
     $$("[data-copy]").forEach(btn => btn.addEventListener("click", () => copyInvitation(+btn.dataset.copy)));
     $$("[data-email]").forEach(btn => btn.addEventListener("click", () => emailInvitation(+btn.dataset.email)));
     $$("[data-share]").forEach(btn => btn.addEventListener("click", () => shareInvitation(+btn.dataset.share)));
+    $$("[data-download]").forEach(btn => btn.addEventListener("click", () => downloadInvitation(+btn.dataset.download)));
+  }
+
+  // ---------- Download a shareable invitation graphic ----------
+  // Generates an image from the current invitation text in club-data.js.
+  // Your meeting location and Zoom details will be included if they are in that text.
+  function invitationLines(context, text, maxWidth) {
+    const lines = [];
+    for (const paragraph of text.replace(/\r/g, "").split("\n")) {
+      if (!paragraph.trim()) {
+        lines.push("");
+        continue;
+      }
+      let line = "";
+      for (const word of paragraph.trim().split(/\s+/)) {
+        const proposed = line ? `${line} ${word}` : word;
+        if (line && context.measureText(proposed).width > maxWidth) {
+          lines.push(line);
+          line = word;
+        } else {
+          line = proposed;
+        }
+      }
+      if (line) lines.push(line);
+    }
+    return lines;
+  }
+
+  function downloadInvitation(i) {
+    const invitation = CLUB_DATA.invitations[i];
+    if (!invitation) return;
+
+    const canvas = document.createElement("canvas");
+    const width = 1600;
+    const left = 130;
+    const maxTextWidth = width - left * 2;
+    const context = canvas.getContext("2d");
+
+    // Measure the CURRENT invitation wording first, so long messages
+    // extend the image rather than being clipped at the bottom.
+    const headingFont = 72;
+    context.font = `bold ${headingFont}px Arial, sans-serif`;
+    const headingLines = invitationLines(context, invitation.title, maxTextWidth);
+    const bodyTop = 535 + headingLines.length * 88;
+    let bodyFont = 43;
+    context.font = `${bodyFont}px Arial, sans-serif`;
+    let bodyLines = invitationLines(context, invitation.text, maxTextWidth);
+    let bodyLineHeight = bodyFont * 1.45;
+    const bodyHeight = () => bodyLines.reduce(
+      (total, line) => total + (line ? bodyLineHeight : bodyLineHeight * 0.6), 0
+    );
+    while (bodyHeight() > 1070 && bodyFont > 32) {
+      bodyFont -= 2;
+      bodyLineHeight = bodyFont * 1.45;
+      context.font = `${bodyFont}px Arial, sans-serif`;
+      bodyLines = invitationLines(context, invitation.text, maxTextWidth);
+    }
+
+    const footerTop = Math.max(1820, Math.ceil(bodyTop + bodyHeight() + 85));
+    canvas.width = width;
+    canvas.height = footerTop + 180;
+
+    const bg = context.createLinearGradient(0, 0, width, canvas.height);
+    bg.addColorStop(0, "#fffaf0");
+    bg.addColorStop(1, "#f1f4f9");
+    context.fillStyle = bg;
+    context.fillRect(0, 0, width, canvas.height);
+
+    // Navy travel-inspired heading.
+    const header = context.createLinearGradient(0, 0, width, 410);
+    header.addColorStop(0, "#12233f");
+    header.addColorStop(1, "#7a263a");
+    context.fillStyle = header;
+    context.fillRect(0, 0, width, 410);
+    context.fillStyle = "#f2c14e";
+    context.fillRect(0, 404, width, 12);
+
+    context.fillStyle = "#f2c14e";
+    context.font = "bold 31px Arial, sans-serif";
+    context.fillText("DESTINATION: DISTINGUISHED", left, 95);
+    context.fillStyle = "#ffffff";
+    context.font = "bold 50px Arial, sans-serif";
+    context.fillText(CLUB_DATA.club.name, left, 170);
+
+    // Minimal passport stamp: original vector art drawn by the browser.
+    context.save();
+    context.translate(width - 207, 266);
+    context.rotate(-0.15);
+    context.strokeStyle = "#f2c14e";
+    context.lineWidth = 8;
+    for (const radius of [113, 98]) {
+      context.beginPath();
+      context.arc(0, 0, radius, 0, Math.PI * 2);
+      context.stroke();
+    }
+    context.fillStyle = "#f2c14e";
+    context.font = "bold 29px Arial, sans-serif";
+    context.textAlign = "center";
+    context.fillText("YOU'RE", 0, -12);
+    context.fillText("INVITED!", 0, 27);
+    context.restore();
+
+    context.fillStyle = "#7a263a";
+    context.font = `bold ${headingFont}px Arial, sans-serif`;
+    headingLines.forEach((line, index) => {
+      context.fillText(line, left, 505 + index * 88);
+    });
+
+    // Draw the invitation EXACTLY from club-data.js, keeping line breaks.
+    context.fillStyle = "#172b4d";
+    context.font = `${bodyFont}px Arial, sans-serif`;
+    let y = bodyTop;
+    bodyLines.forEach(line => {
+      if (line) context.fillText(line, left, y);
+      y += line ? bodyLineHeight : bodyLineHeight * 0.6;
+    });
+
+    // The footer carries the theme, not the developer instructions.
+    context.fillStyle = "#172b4d";
+    context.fillRect(0, footerTop, width, canvas.height - footerTop);
+    context.fillStyle = "#f2c14e";
+    context.fillRect(0, footerTop, width, 8);
+    context.fillStyle = "#ffffff";
+    context.font = "bold 37px Arial, sans-serif";
+    context.fillText("Many Voices. One Vision. One Journey.", left, footerTop + 92);
+    context.font = "30px Arial, sans-serif";
+    context.fillStyle = "#e7eaf1";
+    context.fillText(CLUB_DATA.club.name, left, footerTop + 140);
+
+    const anchor = document.createElement("a");
+    anchor.download = `${invitation.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}-invitation.png`;
+    anchor.href = canvas.toDataURL("image/png");
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   }
 
   async function copyInvitation(i) {
